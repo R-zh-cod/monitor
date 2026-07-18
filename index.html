@@ -3625,6 +3625,25 @@ function getTraitModifier(character, attr, category) {
   return mod;
 }
 
+function getTraitEffectDesc(trait) {
+  const effects = trait.effects || [];
+  if (effects.length === 0) return '';
+  const descs = [];
+  for (const eff of effects) {
+    if (eff.trigger === 'check_modifier') {
+      const attrName = ATTR_NAMES[eff.target] || eff.target;
+      const sign = eff.value > 0 ? '+' : '';
+      const condText = eff.condition === 'campus' ? '（校园场景）' : '';
+      descs.push(`${attrName}判定${sign}${eff.value}${condText}`);
+    } else if (eff.trigger === 'attr_regen') {
+      const attrName = ATTR_NAMES[eff.target] || eff.target;
+      const sign = eff.value > 0 ? '+' : '';
+      descs.push(`每年恢复${sign}${eff.value} ${attrName}`);
+    }
+  }
+  return descs.join('；');
+}
+
 // 结算
 function resolveChoice(character, event, choice, rng) {
   const resolve = choice.resolve;
@@ -3633,13 +3652,16 @@ function resolveChoice(character, event, choice, rng) {
     const { attr, difficulty } = resolve.check;
     const attrVal = character.attrs[attr];
     const traitMod = getTraitModifier(character, attr, event.category);
-    const moodMod = character.mood < -20 ? -3 : (character.mood > 20 ? 2 : 0);
-    const healthMod = character.health < 30 ? -5 : 0;
-    const roll = rollD20(rng);
-    const total = roll + attrVal/10 + traitMod + moodMod + healthMod;
-    if (total >= difficulty + 10) { outcome = resolve.outcomes.on_crit_success || resolve.outcomes.on_success; resultTag = 'crit-success'; }
-    else if (total >= difficulty) { outcome = resolve.outcomes.on_success; resultTag = 'success'; }
-    else if (total <= difficulty - 10) { outcome = resolve.outcomes.on_crit_failure || resolve.outcomes.on_failure; resultTag = 'crit-failure'; }
+    const moodMod = character.mood < -20 ? -8 : (character.mood > 20 ? 5 : 0);
+    const healthMod = character.health < 30 ? -10 : 0;
+    let successRate = 50 + (attrVal - difficulty) * 1.2 + traitMod * 2 + moodMod + healthMod;
+    successRate = Math.max(5, Math.min(95, successRate));
+    const roll = Math.floor(rng() * 100);
+    const critSuccessRate = Math.max(2, successRate - 30);
+    const critFailRate = Math.max(2, 15 - (successRate - 50) * 0.5);
+    if (roll < critSuccessRate) { outcome = resolve.outcomes.on_crit_success || resolve.outcomes.on_success; resultTag = 'crit-success'; }
+    else if (roll < successRate) { outcome = resolve.outcomes.on_success; resultTag = 'success'; }
+    else if (roll > 100 - critFailRate) { outcome = resolve.outcomes.on_crit_failure || resolve.outcomes.on_failure; resultTag = 'crit-failure'; }
     else { outcome = resolve.outcomes.on_failure; resultTag = 'failure'; }
   } else {
     outcome = resolve.default; resultTag = 'default';
@@ -4746,7 +4768,10 @@ function renderGame() {
     const v = c.attrs[k];
     return `<div class="attr-item"><span class="attr-name">${ATTR_NAMES[k]}</span><div class="attr-bar"><div class="attr-fill" style="width:${v}%"></div></div><span class="attr-value">${v}</span></div>`;
   }).join('');
-  const traitBadges = c.traits.map(t => `<span class="trait-badge ${t.type === 'innate' ? 'innate' : ''}" title="${t.desc}">${t.name}</span>`).join('');
+  const traitBadges = c.traits.map(t => {
+          const effectsText = getTraitEffectDesc(t);
+          return `<span class="trait-badge ${t.type === 'innate' ? 'innate' : ''}" title="${t.desc}${effectsText ? '\n\n效果：' + effectsText : ''}">${t.name}</span>`;
+        }).join('');
   const fd = c.familyDesc;
   const genderText = c.gender === 'male' ? '男' : '女';
   // 动态叙事：支持 narrative 作为函数
@@ -4835,12 +4860,18 @@ function renderGame() {
     const visibleChoices = getEventChoices(ev, c);
     const choicesHtml = visibleChoices.map(ch => {
       const text = typeof ch.text === 'function' ? ch.text(c) : ch.text;
-      // 显示选择的属性需求和精力消耗
       let reqText = '';
       if (ch.resolve && ch.resolve.check) {
-        const attrName = ATTR_NAMES[ch.resolve.check.attr] || ch.resolve.check.attr;
+        const attr = ch.resolve.check.attr;
         const dc = ch.resolve.check.difficulty || ch.resolve.check.dc || 50;
-        reqText = `<span class="choice-req">需要 ${attrName}≥${dc}</span>`;
+        const attrVal = c.attrs[attr];
+        const traitMod = getTraitModifier(c, attr, ev.category);
+        const moodMod = c.mood < -20 ? -8 : (c.mood > 20 ? 5 : 0);
+        const healthMod = c.health < 30 ? -10 : 0;
+        let rate = 50 + (attrVal - dc) * 1.2 + traitMod * 2 + moodMod + healthMod;
+        rate = Math.max(5, Math.min(95, Math.round(rate)));
+        const attrName = ATTR_NAMES[attr] || attr;
+        reqText = `<span class="choice-req">${attrName} ${attrVal} · 成功率 ${rate}%</span>`;
       } else {
         reqText = '';
       }
@@ -5364,6 +5395,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   const words = text.split('');
+  let line = '';
   for (let n = 0; n < words.length; n++) {
     const testLine = line + words[n];
     const metrics = ctx.measureText(testLine);
