@@ -1611,38 +1611,46 @@ const EVENTS = [
   // ==================== 青年 (18-29岁) ====================
   // —— 高考结果：重大分支节点，决定大学路径
   {
-    id:'gaokao_result', title:'高考放榜', category:'campus', ageRange:[18,18], weight:1000, once:true, priority:100,
+    id:'gaokao_result', title:'高考志愿', category:'campus', ageRange:[18,18], weight:1000, once:true, priority:100,
     conditions:[{type:'flag',op:'not_has',key:'early_worker'},{type:'flag',op:'not_has',key:'vocational'}],
     narrative: (c) => {
       const lines = ['查分那天，你的手一直在抖。'];
       if (c.era === '90s') lines.push('电话查分拨了半天才打通，听筒里机械的女声一字一句念出你的分数。');
       else if (c.era === '00s') lines.push('你守在电脑前刷新页面，刷了半小时才刷出来。');
       else lines.push('教育考试院的App崩了，你换了三个设备才查到。');
-      lines.push('分数出来了。全家人围在电话/电脑前，空气安静得能听见心跳。');
+      let score = c.attrs.intelligence + Math.floor(c.attrs.willpower/2) + Math.floor(c.attrs.luck/3);
+      if (c.flags.zhuazhou_item === 'book') score += 8;
+      if (c.flags.zhuazhou_item === 'brush') score += 5;
+      if (c.flags.zhuazhou_item === 'coin') score += 3;
+      let scoreText, scoreRank;
+      if (score >= 80) { scoreText = '高出一本线一大截'; scoreRank = '省里排得上号的高分'; }
+      else if (score >= 65) { scoreText = '超了一本线几十分'; scoreRank = '上个好一本没问题'; }
+      else if (score >= 55) { scoreText = '刚过一本线'; scoreRank = '一本二本之间，最尴尬的分数段'; }
+      else if (score >= 40) { scoreText = '二本线以上'; scoreRank = '选个好二本还是有希望的'; }
+      else { scoreText = '不太理想'; scoreRank = '可能只能上专科了'; }
+      lines.push(`你的分数${scoreText}，${scoreRank}。`);
+      lines.push('填志愿的日子到了，你捧着厚厚的招生考试报，翻来覆去地看。');
       return lines;
     },
     choices: (c) => {
       const opts = [];
       let score = c.attrs.intelligence + Math.floor(c.attrs.willpower/2) + Math.floor(c.attrs.luck/3);
-      // 回响系统：抓周物品影响高考
       if (c.flags.zhuazhou_item === 'book') score += 8;
       if (c.flags.zhuazhou_item === 'brush') score += 5;
       if (c.flags.zhuazhou_item === 'coin') score += 3;
-      // 根据属性决定能上什么学校
-      if (score >= 80 || c.flags.good_student) {
-        opts.push({ id:'top', text:'考上了985/重点大学', resolve:{ default:{ narrative:'你的分数超过了所有人的预期。父亲逢人就说"我家孩子争气"。你被一所985录取，专业是你想要的。', moodChange:10, attrChanges:{intelligence:2,charm:1}, setFlags:{university:'top', good_student:true} } } });
-      }
-      if (score >= 60) {
-        opts.push({ id:'key', text:'考上了普通一本', resolve:{ default:{ narrative:'分数够得着一本线，你被一所普通一本录取。不算惊喜，但也对得起这几年的努力。', moodChange:5, attrChanges:{intelligence:1}, setFlags:{university:'key'} } } });
-      }
-      if (score >= 40) {
-        opts.push({ id:'normal', text:'考上了二本', resolve:{ default:{ narrative:'分数一般，最后走了一所二本。母亲嘴上说"够了够了"，眼里却有掩饰不住的失落。', moodChange:0, setFlags:{university:'normal'} } } });
-      }
-      if (score < 50) {
-        opts.push({ id:'college', text:'只能上专科', resolve:{ default:{ narrative:'分数不上不下，最后报了所专科。父亲沉默了很久，说"学门手艺也好"。', moodChange:-3, setFlags:{university:'college'} } } });
-      }
+      // 冲一冲：985/重点大学
+      opts.push({ id:'top', text:'冲一冲985/重点大学', resolve:{ check:{attr:'luck',difficulty:Math.max(20, 110 - score)}, outcomes:{ on_success:{ narrative:'你运气不错，刚好卡线被录取了！全家人都不敢相信，父亲连夜摆了一桌酒。', moodChange:12, attrChanges:{intelligence:2,charm:1, luck:1}, setFlags:{university:'top', good_student:true} }, on_failure:{ narrative:'差了几分，滑档了。你把自己关在房间里哭了一天。最后走了征集志愿，去了个普通二本。', moodChange:-10, attrChanges:{willpower:1}, setFlags:{university:'normal'} } } } });
+      // 稳一稳：普通一本
+      opts.push({ id:'key', text:'稳一稳，报个普通一本', resolve:{ check:{attr:'luck',difficulty:Math.max(15, 90 - score)}, outcomes:{ on_success:{ narrative:'稳稳被录取了，专业也还不错。不算惊喜，但也对得起这几年的努力。', moodChange:5, attrChanges:{intelligence:1}, setFlags:{university:'key'} }, on_failure:{ narrative:'差了几分没到投档线，被调剂到了二本。你心里有点失落，但也认命了。', moodChange:-4, setFlags:{university:'normal'} } } } });
+      // 保一保：二本
+      opts.push({ id:'normal', text:'保守点，报个好二本', resolve:{ check:{attr:'luck',difficulty:Math.max(10, 75 - score)}, outcomes:{ on_success:{ narrative:'你被心仪的二本专业录取了。虽然不是一本，但专业你很喜欢。', moodChange:3, setFlags:{university:'normal'} }, on_failure:{ narrative:'居然连二本都差点滑档，最后被调剂到了专科。你无法接受。', moodChange:-8, setFlags:{university:'college'} } } } });
+      // 专科兜底
+      opts.push({ id:'college', text:'走个专科，学门手艺', resolve:{ default:{ narrative:'你报了个口碑不错的专科，选了门实用的专业。父亲说"学门手艺也好"，但你能听出他语气里的失落。', moodChange:-3, setFlags:{university:'college'} } } });
+      // 复读
       opts.push({ id:'retake', text:'不甘心，要复读', available:(c)=>c.attrs.willpower>50||c.flags.good_student, resolve:{ default:{ narrative:'你跟父母说"再给我一年"。父亲叹气，母亲哭了，但他们同意了。', moodChange:-5, attrChanges:{willpower:3}, setFlags:{university:'retake', retaking:true} } } });
+      // 出国
       opts.push({ id:'abroad', text:'决定出国', available:(c)=>c.family.wealth==='rich', resolve:{ default:{ narrative:'分数不理想，父母商量后决定送你出国。中介费、语言班、申请材料……一切都在准备中。', moodChange:2, attrChanges:{intelligence:1,charm:2}, setFlags:{university:'abroad'} } } });
+      // 不读了
       opts.push({ id:'give_up', text:'不念了，直接工作', available:(c)=>c.family.wealth==='poor'||c.traits.some(t=>t.id==='rebel'), resolve:{ default:{ narrative:'你跟父母说"我不念了"。家里也供不起，你收拾行李去了南方。', moodChange:-3, attrChanges:{willpower:1}, setFlags:{university:'none', early_worker:true} } } });
       return opts;
     },
@@ -5227,11 +5235,11 @@ function generateShareImage() {
     ctx.font = 'bold 14px "Noto Serif SC", serif';
     ctx.fillStyle = '#5a3a1a';
     ctx.textAlign = 'left';
-    ctx.fillText('人生印记：', 50, 330);
+    ctx.fillText('人生印记：', 50, 339);
     
     ctx.font = '13px "Noto Serif SC", serif';
     ctx.fillStyle = '#333';
-    let tagX = 140;
+    let tagX = 130;
     for (const tag of tags.slice(0, 4)) {
       ctx.fillStyle = '#d4c4a8';
       ctx.beginPath();
@@ -5243,19 +5251,21 @@ function generateShareImage() {
     }
   }
   
-  // 属性区域
+  // 属性 + 特质区域（合并到一个框）
   const attrs = c.attrs || {};
   const attrNames = ['intelligence', 'constitution', 'charm', 'luck', 'willpower', 'comprehension'];
   const displayNames = ['智力', '体质', '魅力', '运气', '意志', '悟性'];
+  const traits = c.traits || [];
   
   const attrStartY = tags.length > 0 ? 370 : 330;
+  const boxHeight = traits.length > 0 ? 250 : 200;
   
   ctx.fillStyle = '#f5efe6';
-  ctx.fillRect(50, attrStartY, 400, 180);
+  ctx.fillRect(50, attrStartY, 400, boxHeight);
   
   ctx.strokeStyle = '#d4b87a';
   ctx.lineWidth = 1;
-  ctx.strokeRect(50, attrStartY, 400, 180);
+  ctx.strokeRect(50, attrStartY, 400, boxHeight);
   
   ctx.font = 'bold 14px "Noto Serif SC", serif';
   ctx.fillStyle = '#5a3a1a';
@@ -5293,31 +5303,29 @@ function generateShareImage() {
     y += 28;
   }
   
-  // 特质区域
-  const traits = c.traits || [];
-  const traitsStartY = attrStartY + 200;
-  
+  // 特质部分（合并在同一个框内）
   if (traits.length > 0) {
-    ctx.fillStyle = '#f5efe6';
-    ctx.fillRect(50, traitsStartY, 400, 60);
-    
+    // 分隔线
     ctx.strokeStyle = '#d4b87a';
     ctx.lineWidth = 1;
-    ctx.strokeRect(50, traitsStartY, 400, 60);
+    ctx.beginPath();
+    ctx.moveTo(70, attrStartY + 185);
+    ctx.lineTo(430, attrStartY + 185);
+    ctx.stroke();
     
     ctx.font = 'bold 14px "Noto Serif SC", serif';
     ctx.fillStyle = '#5a3a1a';
     ctx.textAlign = 'center';
-    ctx.fillText('特质禀赋', 250, traitsStartY + 28);
+    ctx.fillText('特质禀赋', 250, attrStartY + 215);
     
     ctx.font = '12px "Noto Serif SC", serif';
     ctx.fillStyle = '#333';
     const traitText = traits.slice(0, 5).map(t => t.name).join(' · ');
-    ctx.fillText(traitText, 250, traitsStartY + 48);
+    ctx.fillText(traitText, 250, attrStartY + 238);
   }
   
   // 底部印章区域
-  const sealY = traits.length > 0 ? traitsStartY + 85 : attrStartY + 205;
+  const sealY = attrStartY + boxHeight + 25;
   
   ctx.font = '12px "Noto Serif SC", serif';
   ctx.fillStyle = '#8b8b8b';
